@@ -42,6 +42,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:8px;min-height:var(--tap);padding:0 14px 0 10px;border:1px solid var(--axis);border-radius:999px;background:var(--surface);cursor:pointer;font-size:15px}
 .chip .sw{width:14px;height:14px;border-radius:50%;background:var(--c);flex:none}
+.chip .sw.dia{border-radius:2px;transform:rotate(45deg) scale(.82)}
 .chip[aria-pressed="false"]{background:transparent;color:var(--muted);border-style:dashed}
 .chip[aria-pressed="false"] .sw{background:transparent;box-shadow:inset 0 0 0 2px var(--axis)}
 .status{flex:1 1 100%;margin:0;font-size:14px;color:var(--muted);min-height:21px}
@@ -104,6 +105,8 @@ a.btn{text-decoration:none;color:var(--ink)}
 .imgdlg .note{margin:0;font-size:14px;color:var(--muted)}
 .imgdlg{overflow:auto}
 .imgdlg .chips{margin:10px 0 6px}
+.imgwarn{margin:8px 0 0;padding:8px 12px;background:var(--chg);border:1px solid #c98a12;border-radius:8px;font-size:14px;line-height:1.4;color:#4a3600}
+.imgwarn ul{margin:4px 0 6px;padding-left:20px}
 .imgdlg .chip{padding:0 14px;font-weight:600}
 .imgdlg img{display:block;width:auto;height:auto;max-width:100%;max-height:58vh;margin:10px auto;border:1px solid var(--axis);border-radius:8px;background:#fff}
 .imgdlg .tools{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
@@ -285,9 +288,10 @@ footer{margin-top:18px;font-size:13px;color:var(--muted)}
 
 <dialog id="imgdlg" class="imgdlg" aria-labelledby="imgdlg-title">
   <h2 id="imgdlg-title">Image for your slides</h2>
-  <p class="note">A picture of the chart as it is now: the map, weights, changed ratings, dot size and tier filter you have set. Pick the format that fits where you will use it.</p>
+  <p class="note">A picture of the chart as it is now, with every filter, weight and changed rating you have set. Zoom is not applied: the picture always shows the whole map. Pick the format that fits where you will use it.</p>
   <div id="imgfmt" class="chips" role="group" aria-label="Picture format"></div>
   <p id="imgcap" class="note" aria-live="polite"></p>
+  <div id="imgwarn" class="imgwarn" role="status" hidden></div>
   <img id="imgprev" alt="Preview of the chart image">
   <div class="tools">
     <a id="imgdl" class="btn" download>Download PNG</a>
@@ -348,14 +352,14 @@ const VIEWS={
     ytitle:"↑ Healthiness: 1 = indulgent, 5 = nutrient-dense",
     q:{tl:"Easy & healthy",tr:"Demanding & healthy",bl:"Easy & indulgent",br:"Demanding & indulgent"}}
 };
-const state={map:"sharing",tiers:new Set([0,1,2,3,4]),q:"",sel:null,hover:null,editOpen:false,
+const state={map:"sharing",tiers:new Set([0,1,2,3,4]),q:"",sel:null,hover:null,editOpen:false,refsOn:true,
   sizeBy:{sharing:"anywhere",health:"sharing"},   // what the dot size shows on each map (a dimension that is on neither of its axes)
   sizeOff:new Set()};                             // size levels hidden with the legend buttons
-const tierOn=d=>d.focus||d.ref||state.tiers.has(d.tier_index);
+const tierOn=d=>d.focus||(d.ref?state.refsOn:state.tiers.has(d.tier_index));
 const matches=d=>!state.q||d.name.toLowerCase().includes(state.q);
 const sizeOn=d=>d.focus||d.ref||!state.sizeOff.has(sizeLevel(d));
 const inPool=d=>tierOn(d)&&sizeOn(d);              // dishes that count in the quadrant totals
-const active=d=>d.focus||d.ref||(inPool(d)&&matches(d));
+const active=d=>d.focus||(d.ref?state.refsOn:(inPool(d)&&matches(d)));   // the competing options have their own filter chip
 const reduceMotion=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* ---------- headline: rebuilt from the current scores, so it follows the weights and every changed rating ---------- */
@@ -369,7 +373,7 @@ function renderFinding(){
     fs.slice(0,5).forEach((d,i,a)=>{const b=el("button","dishlink",d.name); b.type="button"; b.onclick=()=>select(d); p.append(b, i<a.length-1?", ":(fs.length>5?` and ${fs.length-5} more. `:". "));});
     const sharing=s1===s0?`keeps fondue’s sharing score (${of5(s1)})`:s1>s0?`scores higher on sharing than fondue (${score(s1)} against ${of5(s0)})`:`scores lower on sharing than fondue (${score(s1)} against ${of5(s0)})`;
     const q=VIEWS.sharing.quad(alp), link=(s1>=s0)===(e1<e0)?"and":"but";
-    const rz=refs.filter(d=>VIEWS.sharing.quad(d)==="Easy & shared");
+    const rz=refs.filter(d=>active(d)&&VIEWS.sharing.quad(d)==="Easy & shared");
     if(rz.length){ p.append("Outside the list, "); rz.forEach((d,i)=>{ const b=el("button","dishlink",shortName(d).toLowerCase()); b.type="button"; b.onclick=()=>select(d); p.append(b,i<rz.length-1?", ":""); }); p.append(rz.length===1?" also sits in that zone. ":" also sit in that zone. "); }
     p.append(`AlpineDip ${sharing} ${link} ${effort}. `,q==="Easy & shared"?"That puts it in the easy & shared zone.":`With these settings it lands in “${q.toLowerCase()}”, outside the easy & shared zone.`);
   }else{
@@ -398,6 +402,10 @@ M.tiers.forEach((t,i)=>{
   b.onclick=()=>{state.tiers.has(i)?state.tiers.delete(i):state.tiers.add(i); b.setAttribute("aria-pressed",state.tiers.has(i)); refresh();};
   $("tiers").append(b);
 });
+{ const b=el("button","chip"); b.type="button"; b.id="refchip"; b.style.setProperty("--c",REF_COL); b.setAttribute("aria-pressed","true");
+  b.append(el("span","sw dia"),"Competing options");
+  b.onclick=()=>{ state.refsOn=!state.refsOn; b.setAttribute("aria-pressed",state.refsOn); renderFinding(); refresh(); };
+  $("tiers").append(b); }
 items.forEach(d=>{const o=el("option"); o.value=d.name; $("dish-list").append(o);});
 $("q").addEventListener("input",e=>{
   state.q=e.target.value.trim().toLowerCase();
@@ -406,14 +414,14 @@ $("q").addEventListener("input",e=>{
 });
 $("q").addEventListener("keydown",e=>{ if(e.key==="Enter"){ const m=items.filter(d=>matches(d)&&tierOn(d)); if(state.q&&m.length){ e.target.blur(); select(m[0]); } }});
 function resetFilters(){
-  state.tiers=new Set([0,1,2,3,4]); state.q=""; $("q").value=""; state.sizeOff.clear();
-  document.querySelectorAll("#tiers .chip").forEach(c=>c.setAttribute("aria-pressed","true")); renderSizeKey(); refresh();
+  state.tiers=new Set([0,1,2,3,4]); state.q=""; $("q").value=""; state.sizeOff.clear(); state.refsOn=true;
+  document.querySelectorAll("#tiers .chip").forEach(c=>c.setAttribute("aria-pressed","true")); renderSizeKey(); renderFinding(); refresh();
 }
 function linkBtn(text,fn){ const b=el("button","linkbtn",text); b.type="button"; b.onclick=fn; return b; }
 function renderStatus(){
   const s=$("status"); s.replaceChildren();
-  const shown=dishes.filter(active).length, filtered=state.tiers.size<5||state.q||state.sizeOff.size>0;
-  s.append(filtered?`Showing ${shown} of ${dishes.length} dishes (fondue, AlpineDip and the ${refs.length} competing options are always shown).`:`Showing all ${dishes.length} dishes, plus traditional fondue, AlpineDip and ${refs.length} competing options.`);
+  const shown=dishes.filter(active).length, filtered=state.tiers.size<5||state.q||state.sizeOff.size>0||!state.refsOn;
+  s.append(filtered?`Showing ${shown} of ${dishes.length} dishes${state.refsOn?`, plus the ${refs.length} competing options`:"; competing options hidden"} (fondue and AlpineDip are always shown).`:`Showing all ${dishes.length} dishes, plus traditional fondue, AlpineDip and ${refs.length} competing options.`);
   if(filtered) s.append(" ",linkBtn("Reset filters",resetFilters));
 }
 function refresh(){ renderStatus(); render(false); renderTable(); }
@@ -452,6 +460,23 @@ function resetOverrides(d){
 function resetAll(){   // back to the published state: default weights, no changed ratings
   defaultWeights(); defaultTags();
   items.forEach(restore); critMsg=""; recalc();
+}
+/* everything that makes the current view differ from the original one (default weights, all tags, published ratings, nothing filtered) */
+function deviations(){
+  const out=[], ch=items.filter(changed), tierName=i=>M.tiers[i].replace(/^Tier \d – /,"").toLowerCase();
+  if(!allDefault()) out.push("custom criteria weights");
+  if(!allTagsOn()) out.push("healthiness tags switched off ("+TAGS.filter(t=>!tagOn[t]).map(t=>TAGNAME[t].toLowerCase()).join(", ")+")");
+  if(ch.length) out.push(`${ch.length} ${ch.length===1?"dish":"dishes"} with changed ratings (${ch.slice(0,3).map(shortName).join(", ")}${ch.length>3?", …":""})`);
+  if(state.tiers.size<5) out.push("frequency tiers hidden ("+[0,1,2,3,4].filter(i=>!state.tiers.has(i)).map(tierName).join(", ")+")");
+  if(state.sizeOff.size) out.push("dot sizes hidden ("+[...state.sizeOff].sort().map(k=>sizeOf().names[k-1].toLowerCase()).join(", ")+")");
+  if(!state.refsOn) out.push("competing options hidden");
+  if(state.q) out.push(`search “${state.q}” (only matching dishes are drawn)`);
+  return out;
+}
+function resetEverything(){   // back to the original view: published ratings, default weights and tags, no filters
+  defaultWeights(); defaultTags(); items.forEach(restore); critMsg="";
+  state.tiers=new Set([0,1,2,3,4]); state.q=""; $("q").value=""; state.sizeOff.clear(); state.refsOn=true;
+  document.querySelectorAll("#tiers .chip").forEach(c=>c.setAttribute("aria-pressed","true")); recalc(false);
 }
 function renderCritStatus(){
   const s=$("crit-status"); s.replaceChildren();
@@ -607,7 +632,7 @@ function render(animate){
     .attr("class",d=>"dot"+(active(d)?"":" off")+(changed(d)?" chg":"")).attr("fill",colorOf))
     .attr("cx",px).attr("cy",py).attr("r",rOf);
 
-  tr(gRef.selectAll("path").data(refs,d=>d.name).join(e=>e.append("path").attr("transform",d=>`translate(${px(d)},${py(d)}) rotate(45)`))
+  tr(gRef.selectAll("path").data(refs.filter(active),d=>d.name).join(e=>e.append("path").attr("transform",d=>`translate(${px(d)},${py(d)}) rotate(45)`))
     .attr("class",d=>"refmark"+(changed(d)?" chg":"")).attr("d",d=>d3.symbol(d3.symbolSquare,Math.PI*rOf(d)*rOf(d))()))
     .attr("transform",d=>`translate(${px(d)},${py(d)}) rotate(45)`);
   // focus: traditional fondue → AlpineDip
@@ -626,14 +651,14 @@ function render(animate){
 
   // labels: the two focus items (kept inside the plot and apart from each other), the selected dish and (few) search matches
   const hits=state.q?dishes.filter(active):[];
-  const labelled=[alp,fondue].concat(refs,state.sel&&!state.sel.focus&&!state.sel.ref?[state.sel]:[],hits.length<=8?hits.filter(d=>d!==state.sel):[]);
+  const labelled=[alp,fondue].concat(refs.filter(active),state.sel&&!state.sel.focus&&!state.sel.ref?[state.sel]:[],hits.length<=8?hits.filter(d=>d!==state.sel):[]);
   const wA=74,wF=132, keep=(c,w)=>Math.max(L+w/2+3,Math.min(R-w/2-3,c)), lax=keep(ax,wA), lfx=keep(fx,wF);
   const aboveA=ay-ra-24>Tp, clash=Math.abs(lax-lfx)<(wA+wF)/2+8&&Math.abs(ay-fy)<34;
   const aboveF=clash?!aboveA:fy-rf-24>Tp;
   const fpos={[alp.name]:[lax,aboveA?ay-ra-8:ay+ra+16],[fondue.name]:[lfx,aboveF?fy-rf-8:fy+rf+16]};
   // competing options: label above the marker, or below when that would run into a focus label or marker
   const fbox=[[lax-wA/2,lax+wA/2,fpos[alp.name][1]-14,fpos[alp.name][1]+4],[lfx-wF/2,lfx+wF/2,fpos[fondue.name][1]-14,fpos[fondue.name][1]+4],[ax-ra,ax+ra,ay-ra,ay+ra],[fx-rf,fx+rf,fy-rf,fy+rf]];
-  refs.forEach(d=>{
+  refs.filter(active).forEach(d=>{
     const w=shortName(d).length*7.4, x0=keep(px(d),w), r=rOf(d)*1.3, yA=py(d)-r-6, hit=y=>fbox.some(b=>x0-w/2<b[1]&&x0+w/2>b[0]&&y-13<b[3]&&y+3>b[2]);
     const y=(yA-16>Tp&&!hit(yA))?yA:py(d)+r+15; fpos[d.name]=[x0,y]; fbox.push([x0-w/2,x0+w/2,y-13,y+3]);
   });
@@ -777,7 +802,8 @@ function renderDetail(){
 }
 function select(d){
   state.sel=d; hideTip();
-  if(d&&!active(d)&&!d.focus){ state.q=""; $("q").value=""; if(!tierOn(d)){ state.tiers.add(d.tier_index); document.querySelectorAll(".chip")[d.tier_index].setAttribute("aria-pressed","true"); } renderStatus(); }
+  if(d&&d.ref&&!state.refsOn){ state.refsOn=true; $("refchip").setAttribute("aria-pressed","true"); renderStatus(); renderFinding(); }
+  if(d&&!active(d)&&!d.focus&&!d.ref){ state.q=""; $("q").value=""; if(!tierOn(d)){ state.tiers.add(d.tier_index); document.querySelectorAll(".chip")[d.tier_index].setAttribute("aria-pressed","true"); } renderStatus(); }
   renderDetail(); render(false); renderTable();
   if(d&&window.innerWidth<900){   // phone: keep the selected dot visible above the bottom sheet
     const yv=svg.node().getBoundingClientRect().top+py(d), limit=window.innerHeight-$("detail").offsetHeight-30;
@@ -819,7 +845,7 @@ function renderSizeKey(){   // one button per dot size: it says what the size st
     b.onclick=()=>{ state.sizeOff.has(lv)?state.sizeOff.delete(lv):state.sizeOff.add(lv); b.setAttribute("aria-pressed",!state.sizeOff.has(lv)); refresh(); };
     box.append(b);
   });
-  box.append(el("span","szhint","Tap a size to hide or show those dishes. AlpineDip, fondue and the competing options follow the same size rule and are always shown."));
+  box.append(el("span","szhint","Tap a size to hide or show those dishes. AlpineDip, fondue and the competing options follow the same size rule and are not affected by this filter."));
 }
 const COLS=[["Dish",d=>d.name,d=>d.name],["Rank",d=>d.rank??999,d=>d.rank??"–"],["Effort",effOf,d=>score(effOf(d))],["Sharing",shareOf,d=>score(shareOf(d))],["Cost",d=>d.cost,d=>usd(d.cost)],["Time to table",d=>d.time_min,d=>mins(d.time_min)],["Health",healthOf,d=>healthOf(d)],["Anywhere",d=>d.anywhere,d=>score(d.anywhere)],["Suits all",d=>d.suits,d=>score(d.suits)],["Quadrant",d=>VIEWS[state.map].quad(d),d=>VIEWS[state.map].quad(d)]];
 let sort={i:1,dir:1};
@@ -856,7 +882,7 @@ function buildExportSvg(EW,EH){
   const items=[];
   items.push({w:32+tw("AlpineDip",FS),draw:(x,y)=>{ root.append("path").attr("d",d3.symbol(d3.symbolStar,300)()).attr("transform",`translate(${x+12},${y-7})`).attr("fill","#d62c1f"); txt(x+32,y,"AlpineDip",{fs:FS}); }});
   items.push({w:30+tw("Traditional fondue",FS),draw:(x,y)=>{ root.append("circle").attr("cx",x+11).attr("cy",y-7).attr("r",11).attr("fill","#222"); txt(x+30,y,"Traditional fondue",{fs:FS}); }});
-  items.push({w:30+tw("Competing options (not among the 100)",FS),draw:(x,y)=>{ root.append("path").attr("d",d3.symbol(d3.symbolSquare,300)()).attr("transform",`translate(${x+12},${y-7}) rotate(45)`).attr("fill",REF_COL); txt(x+30,y,"Competing options (not among the 100)",{fs:FS}); }});
+  if(state.refsOn) items.push({w:30+tw("Competing options (not among the 100)",FS),draw:(x,y)=>{ root.append("path").attr("d",d3.symbol(d3.symbolSquare,300)()).attr("transform",`translate(${x+12},${y-7}) rotate(45)`).attr("fill",REF_COL); txt(x+30,y,"Competing options (not among the 100)",{fs:FS}); }});
   const KX=.56*Math.max(.72,Math.min(1,(R-L)/1468)), keyed=sizeOf()!==SIZES.none, ROW=keyed?40:30;
   if(keyed){
     const lv=[1,2,3,4,5].filter(k=>!state.sizeOff.has(k)), str=`Dot size = ${sizeOf().label.toLowerCase()}:`;
@@ -872,9 +898,8 @@ function buildExportSvg(EW,EH){
     const need=it.group?items.slice(i,i+it.group).reduce((a,o)=>a+o.w+GAP,-GAP):it.w;
     if(lx+need>R&&rows[rows.length-1].length&&(it.group||lx+it.w>R)){ rows.push([]); lx=L; }
     rows[rows.length-1].push([it,lx]); lx+=it.w+GAP; });
-  const n=DATA.dishes.filter(changed).length, custom=[allDefault()?"":"custom criteria weights",allTagsOn()?"":"some healthiness tags switched off",n?`${n} ${n===1?"rating":"ratings"} changed by the presenter`:""].filter(Boolean).join(", ");
   const where=/^https?:/.test(location.protocol)?" · "+(location.host+location.pathname).replace(/\/$/,""):"";
-  const flines=wrap(`All scores are stated assumptions (1–5 ratings against fixed criteria)${custom?" · shown with "+custom:""}${where}`,R-L,14);
+  const flines=wrap(`All scores are stated assumptions (1–5 ratings against fixed criteria)${where}`,R-L,14);   // the picture carries no notice about filters or changes; that is shown in the image window
   const B=EH-(68+(xlines.length-1)*28+ROW+(rows.length-1)*ROW+28+(flines.length-1)*18+10);
   let cy0=B+68; xlines.forEach((l,i)=>txt((L+R)/2,cy0+i*28,l,{fs:22,fill:"#47525e",a:"middle"})); cy0+=(xlines.length-1)*28+ROW;
   rows.forEach((row,i)=>row.forEach(([it,x])=>it.draw(x,cy0+i*ROW))); cy0+=(rows.length-1)*ROW+28;
@@ -895,7 +920,7 @@ function buildExportSvg(EW,EH){
   txt(0,0,yt,{fs:Math.min(22,(B-Tp)/(yt.length*.52)),fill:"#47525e",a:"middle"}).attr("transform",`translate(36,${(Tp+B)/2}) rotate(-90)`);
   // quadrant names and counts
   const boxes=[], hit=(a,b)=>a.x0<b.x1&&a.x1>b.x0&&a.y0<b.y1&&a.y1>b.y0;
-  const pool=dishes.filter(inPool), cnt=name=>pool.filter(d=>v.quad(d)===name).length, qtexts=[];
+  const pool=dishes.filter(active), cnt=name=>pool.filter(d=>v.quad(d)===name).length, qtexts=[];   // counts cover exactly the dishes drawn in the picture
   [["tl",L+14,Tp+32,"start","#1e7a45"],["tr",R-14,Tp+32,"end",GREY],["bl",L+14,B-42,"start",GREY],["br",R-14,B-42,"end",GREY]].forEach(([k,x,y,a,c])=>{
     const name=v.q[k].toUpperCase(), w=tw(name,24)*1.08; qtexts.push(txt(x,y,name,{fs:24,w:700,fill:c,a}),txt(x,y+27,`${cnt(v.q[k])} of ${pool.length} dishes`,{fill:c,a}));
     boxes.push(a==="start"?{x0:x,x1:x+w,y0:y-26,y1:y+34}:{x0:x-w,x1:x,y0:y-26,y1:y+34});
@@ -927,11 +952,12 @@ function buildExportSvg(EW,EH){
     boxes.push(best.bx);
     txt(best.tx,best.ty,str,{fs,w,fill,a:best.an}).attr("paint-order","stroke").attr("stroke","#fff").attr("stroke-width",7).attr("stroke-linejoin","round");
   }
-  refs.forEach(d=>{ const r=er(d)*1.25; root.append("path").attr("d",d3.symbol(d3.symbolSquare,Math.PI*er(d)*er(d))()).attr("transform",`translate(${X(d)},${Y(d)}) rotate(45)`).attr("fill",REF_COL).attr("stroke","#fff").attr("stroke-width",2);
+  const rshown=refs.filter(active);
+  rshown.forEach(d=>{ const r=er(d)*1.25; root.append("path").attr("d",d3.symbol(d3.symbolSquare,Math.PI*er(d)*er(d))()).attr("transform",`translate(${X(d)},${Y(d)}) rotate(45)`).attr("fill",REF_COL).attr("stroke","#fff").attr("stroke-width",2);
     boxes.push({x0:X(d)-r,x1:X(d)+r,y0:Y(d)-r,y1:Y(d)+r}); });
   label(alp,"AlpineDip",34,700,"#c5261c","alrb"); label(fondue,"Traditional fondue",28,700,INK,"arlb");
-  refs.forEach(d=>label(d,shortName(d),22,700,"#5d3a80","abrl"));
-  const target=dishes.filter(d=>active(d)&&v.quad(d)===v.q.tl), named=(target.length<=8?target:[]).concat(state.sel&&!state.sel.focus&&!state.sel.ref&&active(state.sel)?[state.sel]:[]).filter((d,i,a)=>a.indexOf(d)===i);
+  rshown.forEach(d=>label(d,shortName(d),22,700,"#5d3a80","abrl"));
+  const target=dishes.filter(d=>active(d)&&v.quad(d)===v.q.tl), hitsX=state.q?dishes.filter(active):[], named=(target.length<=8?target:[]).concat(hitsX.length<=8?hitsX:[],state.sel&&!state.sel.focus&&!state.sel.ref&&active(state.sel)?[state.sel]:[]).filter((d,i,a)=>a.indexOf(d)===i);
   named.forEach(d=>{ boxes.push({x0:X(d)-er(d),x1:X(d)+er(d),y0:Y(d)-er(d),y1:Y(d)+er(d)}); });
   named.forEach(d=>label(d,d.name,22,600,INK,"rlab"));
   return root.node();
@@ -945,8 +971,13 @@ function makeImage(){
     c.toBlob(blob=>{
       btn.disabled=false; if(!blob) return;
       if(exportUrl) URL.revokeObjectURL(exportUrl); exportUrl=URL.createObjectURL(blob);
-      $("imgprev").src=exportUrl; const a=$("imgdl"); a.href=exportUrl; a.download=`AlpineDip_map_${state.map}_${f.k}.png`;
+      $("imgprev").src=exportUrl; const a=$("imgdl"); a.href=exportUrl; const dev=deviations(); a.download=`AlpineDip_map_${state.map}_${f.k}${dev.length?"_modified":""}.png`;
       $("imgcap").textContent=`${f.what} · ${c.width} × ${c.height} px`;
+      const w=$("imgwarn"); w.hidden=!dev.length; w.replaceChildren();
+      if(dev.length){
+        w.append(el("strong",null,"Not the original version. "),"This picture includes your "+(dev.length===1?"change":"changes")+":"); const ul=el("ul"); dev.forEach(t=>ul.append(el("li",null,t))); w.append(ul);
+        w.append("The picture itself carries no note about this. ",linkBtn("Reset everything and redraw",()=>{ resetEverything(); makeImage(); }));
+      }
       const dlg=$("imgdlg"); if(!dlg.open){ if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open",""); }
     },"image/png");
   };
