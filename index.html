@@ -267,8 +267,11 @@ footer{margin-top:18px;font-size:13px;color:var(--muted)}
         <p id="crit-status" class="status" aria-live="polite"></p>
         <div class="tools">
           <button type="button" id="dl" class="btn">Download scores (CSV)</button>
-          <span id="chg-status" class="status" style="flex:1 1 140px;min-height:0" aria-live="polite"></span>
+          <button type="button" id="ld" class="btn" title="Load a scores file that was downloaded from this page">Load scores (CSV)</button>
+          <input type="file" id="ldfile" accept=".csv,text/csv" hidden>
+          <span id="chg-status" class="status" style="flex:1 1 100%;min-height:0" aria-live="polite"></span>
         </div>
+        <p id="load-status" class="status" aria-live="polite" hidden></p>
       </section>
       <aside id="detail" class="card detail" hidden aria-live="polite"></aside>
     </div>
@@ -508,14 +511,15 @@ function renderCritStatus(){
   if(allDefault()&&allTagsOn()) s.append(critMsg+"Default settings: same scores as the printed maps."+(state.map==="health"?" The healthiness map does not use the sharing criteria.":state.map==="anywhere"?" The eat anywhere map does not use the effort and cost criteria.":""));
   else s.append(critMsg+"Custom settings: scores differ from the printed maps. ",linkBtn("Default settings",resetCriteria));
   const c=$("chg-status"), n=items.filter(changed).length; c.replaceChildren();
-  if(n) c.append(`${n} ${n===1?"dish":"dishes"} with ratings changed by you (lost when the page is reloaded). `,linkBtn("Undo all",()=>resetOverrides()));
+  if(n) c.append(`${n} ${n===1?"dish":"dishes"} with ratings changed by you (lost when the page is reloaded; download the scores to load them again later). `,linkBtn("Undo all",()=>resetOverrides()));
   else c.append("Ratings can be changed per dish: tap a dot.");
 }
-function recalc(animate=true){ renderCritStatus(); renderFinding(); renderSizeKey(); renderStatus(); render(animate); renderDetail(); renderTable(); }
+function recalc(animate=true){ $("load-status").hidden=true; renderCritStatus(); renderFinding(); renderSizeKey(); renderStatus(); render(animate); renderDetail(); renderTable(); }
 
 /* download the current ratings (including your changes) as scores_refined.csv */
+const colKey=c=>c.name.toLowerCase().replace(/[^a-z]+/g,"_").replace(/_$/,"");   // column name of a criterion, shared by download and load
 $("dl").onclick=()=>{
-  const key=c=>c.name.toLowerCase().replace(/[^a-z]+/g,"_").replace(/_$/,"");
+  const key=colKey;
   const head=["name","rank","time_min","cost_per_serving","eat_anywhere","suits_everyone","healthiness","health_tags"]
     .concat(CRIT.effort.map(c=>"effort_"+key(c)),["effort"],CRIT.sharing.map(c=>"sharing_"+key(c)),["sharing","quadrant","changed_by_user"])
     .concat(["published_time_min","published_cost_per_serving","published_eat_anywhere","published_suits_everyone","published_healthiness","published_health_tags"],CRIT.effort.map(c=>"published_effort_"+key(c)),CRIT.sharing.map(c=>"published_sharing_"+key(c)))
@@ -529,6 +533,86 @@ $("dl").onclick=()=>{
   const blob=new Blob(["﻿"+head.join(",")+"\r\n"+rows.join("\r\n")+"\r\n"],{type:"text/csv;charset=utf-8"});
   const a=el("a"); a.href=URL.createObjectURL(blob); a.download="scores_refined.csv"; document.body.append(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+};
+
+/* load a scores file that this page produced: its ratings, weights and tag switches replace the current ones, in memory only, exactly as if
+   they had been entered by hand (dishes that are not in the file go back to their published ratings). Nothing is sent anywhere. */
+function parseCsv(text){   // quoted cells, comma or semicolon (a spreadsheet may re-save the file with semicolons and decimal commas)
+  text=text.replace(/^\uFEFF/,"");
+  const first=text.split(/\r?\n/,1)[0], delim=first.split(";").length>first.split(",").length?";":",", rows=[];
+  let row=[], cell="", q=false;
+  const endRow=()=>{ row.push(cell); cell=""; if(row.some(c=>c.trim()!=="")) rows.push(row); row=[]; };
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){ if(ch!=='"') cell+=ch; else if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; }
+    else if(ch==='"') q=true;
+    else if(ch===delim){ row.push(cell); cell=""; }
+    else if(ch==="\n"||ch==="\r"){ if(ch==="\r"&&text[i+1]==="\n") i++; endRow(); }
+    else cell+=ch;
+  }
+  endRow();
+  return {rows,delim};
+}
+function loadScores(text){
+  const {rows,delim}=parseCsv(text), head=(rows.shift()||[]).map(h=>h.trim().toLowerCase()), col=n=>head.indexOf(n);
+  const num=v=>{ v=v.trim(); if(delim===";") v=v.replace(",","."); return v===""?NaN:Number(v); };
+  if(col("name")<0||!AXES.some(a=>CRIT[a].some(c=>col(a+"_"+colKey(c))>=0))) return {error:"This is not a scores file from this page: the columns “name” and the criteria columns are missing."};
+  const byName=new Map(items.map(d=>[d.name,d])), seen=new Set(), unknown=[], bad=[], todo=[];
+  rows.forEach(r=>{
+    const nm=(r[col("name")]||"").trim(), d=byName.get(nm);
+    if(!d){ unknown.push(nm||"(no name)"); return; }
+    if(seen.has(d)) return; seen.add(d);
+    const get=n=>{ const v=col(n)<0?undefined:r[col(n)]; return v===undefined||v.trim()===""?undefined:v; }, flag=what=>bad.push(`${shortName(d)}: ${what}`);
+    const level=(raw,base,what,put)=>{   // a rated value: a whole level 1–5, or the published value
+      if(raw===undefined) return; const v=num(raw);
+      if(Math.abs(v-base)<1e-6) todo.push(()=>put(base)); else if(Number.isInteger(v)&&v>=1&&v<=5) todo.push(()=>put(v)); else flag(what);
+    };
+    AXES.forEach(a=>CRIT[a].forEach((c,i)=>{
+      if(!c.calc){ level(get(a+"_"+colKey(c)),d.base[a][i],c.name.toLowerCase(),v=>{ d[a+"_criteria"][i]=v; }); return; }
+      const k=VALKEY[c.calc], time=c.calc==="time", raw=get(time?"time_min":"cost_per_serving"); if(raw===undefined) return;   // calculated criteria come from the minutes and the dollars
+      let v=num(raw); if(!isFinite(v)||v<=0){ flag(time?"time":"cost"); return; }
+      v=time?Math.min(Math.max(Math.round(v),1),1440):Math.min(Math.round(v*100)/100,99);
+      const same=Math.abs(v-d.base[k])<.006;
+      todo.push(()=>{ d[k]=same?d.base[k]:v; d[a+"_criteria"][i]=same?d.base[a][i]:levelOf(v,M.levels[c.calc]); });
+    }));
+    level(get("eat_anywhere"),d.base.anywhere,"eat anywhere",v=>{ d.anywhere=v; });
+    level(get("suits_everyone"),d.base.suits,"suits everyone",v=>{ d.suits=v; });
+    if(col("health_tags")>=0&&r[col("health_tags")]!==undefined){
+      const t=r[col("health_tags")].trim().split(/\s+/).filter(Boolean);
+      if(t.every(x=>TAGS.includes(x))) todo.push(()=>{ d.tags=new Set(t); }); else flag("healthiness tags");
+    }
+  });
+  if(!seen.size) return {error:"No dish name in this file matches a dish on the map."};
+  // weights and tag switches are the same on every row: read them from the first one
+  const r0=rows.find(r=>byName.has((r[col("name")]||"").trim())), w={}, notes=[];
+  AXES.forEach(a=>{ const v=CRIT[a].map(c=>{ const k=col("weight_"+a+"_"+colKey(c)); return k<0||r0[k]===undefined?NaN:num(r0[k]); });
+    if(v.every(x=>Number.isInteger(x)&&x>=0&&x<=10)&&v.some(Boolean)) w[a]=v; else if(v.some(x=>!isNaN(x))) notes.push(`the ${a==="effort"?"effort and cost":"sharing"} weights could not be read, so the default weights are used`); });
+  const offCol=col("health_tags_switched_off"), off=offCol<0||r0[offCol]===undefined?[]:r0[offCol].trim().split(/\s+/).filter(t=>TAGS.includes(t));
+  // apply
+  items.forEach(restore); defaultWeights(); defaultTags(); todo.forEach(f=>f());
+  AXES.forEach(a=>{ if(w[a]){ wt[a]=w[a]; document.querySelectorAll("#crit-"+a+" input[type=range]").forEach((inp,i)=>{ inp.value=w[a][i]; }); } });
+  off.forEach(t=>tagOn[t]=false);
+  const boxOrder=TAGS.filter(t=>!POS.has(t)).concat(TAGS.filter(t=>POS.has(t)));
+  document.querySelectorAll("#crit-health input").forEach((inp,i)=>{ inp.checked=tagOn[boxOrder[i]]; });
+  critMsg=""; recalc();
+  return {dishes:seen.size,unknown,bad,notes};
+}
+$("ld").onclick=()=>$("ldfile").click();
+$("ldfile").onchange=ev=>{
+  const f=ev.target.files[0], out=$("load-status"); ev.target.value=""; if(!f) return;
+  const say=(...parts)=>{ out.replaceChildren(...parts); out.hidden=false; };
+  if(f.size>2e6){ say(el("strong",null,"Not loaded. "),"The file is too large to be a scores file from this page."); return; }
+  f.text().then(text=>{
+    const res=loadScores(text);
+    if(res.error){ say(el("strong",null,"Not loaded. "),res.error); return; }
+    const n=items.filter(changed).length, custom=[n?`${n} ${n===1?"dish differs":"dishes differ"} from the published ratings`:"", allDefault()?"":"custom criteria weights", allTagsOn()?"":"healthiness tags switched off"].filter(Boolean);
+    const list=(a,k)=>a.slice(0,k).join(", ")+(a.length>k?", …":"");
+    say(el("strong",null,`Loaded “${f.name}”. `),custom.length?custom.join(", ")+". ":"It matches the published ratings and the default settings. ",
+      res.unknown.length?`${res.unknown.length} ${res.unknown.length===1?"row":"rows"} skipped, no such dish on the map (${list(res.unknown,3)}). `:"",
+      res.bad.length?`${res.bad.length} ${res.bad.length===1?"value":"values"} not usable and left as published (${list(res.bad,3)}). `:"",
+      res.notes.length?res.notes.join("; ").replace(/^./,c=>c.toUpperCase())+". ":"",
+      "Loaded values stay in this browser tab only.");
+  }).catch(()=>say(el("strong",null,"Not loaded. "),"The file could not be read."));
 };
 
 /* ---------- chart ---------- */
