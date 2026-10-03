@@ -25,6 +25,7 @@ header{margin:4px 0 14px}
 h1{margin:0 0 8px;font-size:clamp(22px,5.2vw,32px);line-height:1.15;text-wrap:balance}
 .finding{margin:0;color:var(--ink-2);max-width:70ch}
 .finding strong{color:var(--ink)}
+.finding .custom{background:var(--chg);color:#6d4a00;border-radius:6px;padding:1px 6px;font-weight:600;box-decoration-break:clone;-webkit-box-decoration-break:clone}
 .dishlink{font:inherit;color:var(--ink);background:none;border:0;border-bottom:2px solid var(--zone-ink);padding:0 1px;margin:0 1px;cursor:pointer;font-weight:600}
 button,select{font:inherit;color:inherit}
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,tr:focus-visible{outline:3px solid #1b6ef3;outline-offset:2px}
@@ -292,21 +293,27 @@ const matches=d=>!state.q||d.name.toLowerCase().includes(state.q);
 const active=d=>d.focus||(tierOn(d)&&matches(d));
 const reduceMotion=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/* ---------- headline ---------- */
+/* ---------- headline: rebuilt from the current scores, so it follows the weights and every changed rating ---------- */
 function renderFinding(){
   const p=$("finding"); p.replaceChildren();
-  const e0=score(effOf(fondue)), e1=score(effOf(alp));
-  const move=effOf(alp)<effOf(fondue)?`cuts the effort from ${e0} to ${e1} of 5`:`has an effort of ${e1} of 5 (fondue: ${e0})`;
+  const e0=effOf(fondue), e1=effOf(alp), s0=shareOf(fondue), s1=shareOf(alp), of5=v=>`${score(v)} of 5`;
+  const effort=e1<e0?`cuts the effort from ${score(e0)} to ${of5(e1)}`:e1>e0?`needs more effort than fondue (${score(e1)} against ${of5(e0)})`:`needs the same effort as fondue (${of5(e1)})`;
   if(state.map==="sharing"){
     const fs=dishes.filter(d=>VIEWS.sharing.quad(d)==="Easy & shared");
     p.append(el("strong",null,fs.length?`Only ${fs.length} of ${dishes.length} dishes ${fs.length===1?"is":"are"} both easy (effort of ${TH.easy_max} or less) and shared: `:`None of the ${dishes.length} dishes is both easy (effort of ${TH.easy_max} or less) and shared. `));
     fs.slice(0,5).forEach((d,i,a)=>{const b=el("button","dishlink",d.name); b.type="button"; b.onclick=()=>select(d); p.append(b, i<a.length-1?", ":(fs.length>5?` and ${fs.length-5} more. `:". "));});
-    const s0=shareOf(fondue), s1=shareOf(alp);
-    p.append(s0===s1?`AlpineDip keeps fondue’s sharing score (${score(s1)} of 5) and ${move}.`:`AlpineDip scores ${score(s1)} of 5 on sharing (fondue: ${score(s0)}) and ${move}.`);
+    const sharing=s1===s0?`keeps fondue’s sharing score (${of5(s1)})`:s1>s0?`scores higher on sharing than fondue (${score(s1)} against ${of5(s0)})`:`scores lower on sharing than fondue (${score(s1)} against ${of5(s0)})`;
+    const q=VIEWS.sharing.quad(alp), link=(s1>=s0)===(e1<e0)?"and":"but";
+    p.append(`AlpineDip ${sharing} ${link} ${effort}. `,q==="Easy & shared"?"That puts it in the easy & shared zone.":`With these settings it lands in “${q.toLowerCase()}”, outside the easy & shared zone.`);
   }else{
+    const fh=dishes.filter(d=>VIEWS.health.quad(d)==="Easy & healthy").length, h0=fondue.health, h1=alp.health;
     p.append(el("strong",null,"Backup view: the move is on effort, not on health. "));
-    p.append(`AlpineDip is as indulgent as traditional fondue (health score ${alp.health} of 5); it ${move}.`);
+    p.append(`${fh} of ${dishes.length} dishes are easy and healthy. AlpineDip ${h1===h0?`is as indulgent as traditional fondue (health score ${of5(h1)})`:`has a health score of ${of5(h1)} (fondue: ${score(h0)})`}; it ${effort}.`);
   }
+  const n=items.filter(changed).length, parts=[];
+  if(!allEqual()) parts.push("your criteria weights");
+  if(n) parts.push(`${n} ${n===1?"dish":"dishes"} with ratings changed by you`);
+  if(parts.length) p.append(" ",el("span","custom",`Calculated with ${parts.join(" and ")}.`)," ",linkBtn("Reset",resetAll));
 }
 
 /* ---------- controls ---------- */
@@ -362,6 +369,10 @@ function resetCriteria(){
 }
 function resetOverrides(d){
   (d?[d]:items).forEach(x=>AXES.forEach(a=>x[a+"_criteria"]=x.base[a].slice())); recalc();
+}
+function resetAll(){   // back to the published state: equal weights, no changed ratings
+  AXES.forEach(a=>wt[a]=wt[a].map(()=>W0)); document.querySelectorAll(".crit input[type=range]").forEach(i=>i.value=W0);
+  items.forEach(x=>AXES.forEach(a=>x[a+"_criteria"]=x.base[a].slice())); critMsg=""; recalc();
 }
 function renderCritStatus(){
   const s=$("crit-status"); s.replaceChildren();
@@ -555,7 +566,7 @@ function critText(d,axis){   // "time 3 (25 min), know-how 2, special equipment 
 }
 function editor(d){   // per-dish override of every criterion; nothing is stored, a reload restores the published ratings
   const ed=el("details","edit"); ed.open=state.editOpen; ed.addEventListener("toggle",()=>{ state.editOpen=ed.open; });
-  ed.append(el("summary",null,"Change this dish’s ratings"));
+  const sm=el("summary",null,"Change this dish’s ratings"); sm.addEventListener("click",()=>{ state.editOpen=!ed.open; }); ed.append(sm);   // remembered at once (the toggle event comes later)
   const body=el("div","body"); ed.append(body);
   body.append(el("p",null,"Pick another level to see the dot move. Your changes are not saved: reloading the page restores the published ratings."));
   AXES.forEach(axis=>{
