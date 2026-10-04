@@ -330,7 +330,7 @@ const REF_COL="#7a4fa3", colorOf=d=>d.ref?REF_COL:d.focus?(d===alp?"#d62c1f":"#2
 const shortName=d=>d===alp?"AlpineDip":d===fondue?"Fondue, made from scratch":d.name==="Cheese fondue, ready-made pack"?"Fondue, ready-made pack":d.name;
 const usd=v=>"$"+v.toFixed(2);
 const score=v=>Number.isInteger(v)?String(v):String(+v.toFixed(2));
-const mins=t=>t<60?t+" min":(t%60?(t/60).toFixed(1).replace(/\.0$/,""):t/60)+" h";
+const mins=t=>t<60?t+" min":Math.floor(t/60)+" h"+(t%60?" "+t%60+" min":"");   // 75 -> "1 h 15 min"
 
 /* ---------- scores: criteria weights + per-dish overrides (kept in memory only; a reload restores the published state) ---------- */
 const OTHER=["anywhere","suits"];   // ratings that belong to no axis score
