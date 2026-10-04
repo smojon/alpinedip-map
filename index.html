@@ -106,6 +106,7 @@ a.btn{text-decoration:none;color:var(--ink)}
 .imgdlg .note{margin:0;font-size:14px;color:var(--muted)}
 .imgdlg{overflow:auto}
 .imgdlg .chips{margin:10px 0 6px}
+.imgdlg .imgkey{margin:2px 0 6px;font-size:14px}
 .imgwarn{margin:8px 0 0;padding:8px 12px;background:var(--chg);border:1px solid #c98a12;border-radius:8px;font-size:14px;line-height:1.4;color:#4a3600}
 .imgwarn ul{margin:4px 0 6px;padding-left:20px}
 .imgdlg .chip{padding:0 14px;font-weight:600}
@@ -301,8 +302,10 @@ footer{margin-top:18px;font-size:13px;color:var(--muted)}
 
 <dialog id="imgdlg" class="imgdlg" aria-labelledby="imgdlg-title">
   <h2 id="imgdlg-title">Image for your slides</h2>
-  <p class="note">A picture of the chart as it is now, with every filter, weight and changed rating you have set. Zoom is not applied: the picture always shows the whole map. Pick the format that fits where you will use it.</p>
+  <p class="note">A picture of the chart as it is now, with every filter, weight and changed rating you have set. Zoom is not applied: the picture always shows the whole map. Pick the format that fits where you will use it, and larger text if the picture will be shown small, for example on half a slide.</p>
   <div id="imgfmt" class="chips" role="group" aria-label="Picture format"></div>
+  <div id="imgsize" class="chips" role="group" aria-label="Text size"></div>
+  <label class="check imgkey"><input type="checkbox" id="imgkey" checked> Show the legend (dot size and dot colour)</label>
   <p id="imgcap" class="note" aria-live="polite"></p>
   <div id="imgwarn" class="imgwarn" role="status" hidden></div>
   <img id="imgprev" alt="Preview of the chart image">
@@ -1025,15 +1028,15 @@ function buildExportSvg(EW,EH){
   items.push({w:32+tw("AlpineDip",FS),draw:(x,y)=>{ root.append("path").attr("d",d3.symbol(d3.symbolStar,300)()).attr("transform",`translate(${x+12},${y-7})`).attr("fill","#d62c1f"); txt(x+32,y,"AlpineDip",{fs:FS}); }});
   items.push({w:30+tw("Fondue, made from scratch",FS),draw:(x,y)=>{ root.append("circle").attr("cx",x+11).attr("cy",y-7).attr("r",11).attr("fill","#222"); txt(x+30,y,"Fondue, made from scratch",{fs:FS}); }});
   if(state.refsOn) items.push({w:30+tw("Competing options (not among the 100)",FS),draw:(x,y)=>{ root.append("path").attr("d",d3.symbol(d3.symbolSquare,300)()).attr("transform",`translate(${x+12},${y-7}) rotate(45)`).attr("fill",REF_COL); txt(x+30,y,"Competing options (not among the 100)",{fs:FS}); }});
-  const KX=.56*Math.max(.72,Math.min(1,(R-L)/1468)), keyed=sizeOf()!==SIZES.none, ROW=keyed?40:30;
+  const KX=.56*Math.max(.72,Math.min(1,(R-L)/1468)), keyed=exportKey&&sizeOf()!==SIZES.none, ROW=keyed?40:30;
   if(keyed){
     const lv=[1,2,3,4,5].filter(k=>!state.sizeOff.has(k)), str=`Dot size = ${sizeOf().label.toLowerCase()}:`;
     items.push({w:tw(str,FS),group:lv.length+1,draw:(x,y)=>txt(x,y,str,{fs:FS})});
     lv.forEach(k=>{ const r=Math.sqrt(areaOf(k))*KX, name=(sizeOf().short||sizeOf().names)[k-1];
       items.push({w:2*r+8+tw(name,FS),draw:(x,y)=>{ root.append("circle").attr("cx",x+r).attr("cy",y-7).attr("r",r).attr("fill","#8f99a3"); txt(x+2*r+8,y,name,{fs:FS}); }}); });
   }
-  { const str="Dot colour = how often it is eaten:"; items.push({w:tw(str,FS),group:state.tiers.size+1,draw:(x,y)=>txt(x,y,str,{fs:FS})}); }
-  M.tiers.forEach((t,i)=>{ if(!state.tiers.has(i)) return; const str=t.replace(/^Tier \d – /,"");
+  if(exportKey){ const str="Dot colour = how often it is eaten:"; items.push({w:tw(str,FS),group:state.tiers.size+1,draw:(x,y)=>txt(x,y,str,{fs:FS})}); }
+  if(exportKey) M.tiers.forEach((t,i)=>{ if(!state.tiers.has(i)) return; const str=t.replace(/^Tier \d – /,"");
     items.push({w:28+tw(str,FS),draw:(x,y)=>{ root.append("circle").attr("cx",x+10).attr("cy",y-7).attr("r",10).attr("fill",TIER_COLORS[i]).attr("fill-opacity",.85); txt(x+28,y,str,{fs:FS}); }}); });
   const rows=[[]]; let lx=L;
   items.forEach((it,i)=>{   // a key (its heading plus its entries) starts a new row unless all of it fits on the current one
@@ -1043,6 +1046,7 @@ function buildExportSvg(EW,EH){
   const where=/^https?:/.test(location.protocol)?" · "+(location.host+location.pathname).replace(/\/$/,""):"";
   const flines=wrap(`All scores are stated assumptions (1–5 ratings against fixed criteria)${where}`,R-L,14);   // the picture carries no notice about filters or changes; that is shown in the image window
   const B=EH-(68+(xlines.length-1)*28+ROW+(rows.length-1)*ROW+28+(flines.length-1)*18+10);
+  root.attr("data-plot",(B-Tp)/EH);   // share of the height left for the plot
   let cy0=B+68; xlines.forEach((l,i)=>txt((L+R)/2,cy0+i*28,l,{fs:22,fill:"#47525e",a:"middle"})); cy0+=(xlines.length-1)*28+ROW;
   rows.forEach((row,i)=>row.forEach(([it,x])=>it.draw(x,cy0+i*ROW))); cy0+=(rows.length-1)*ROW+28;
   flines.forEach((l,i)=>txt(L,cy0+i*18,l,{fs:14,fill:GREY}));
@@ -1105,9 +1109,13 @@ function buildExportSvg(EW,EH){
   named.forEach(d=>label(d,d.name,22,600,INK,"rlab"));
   return root.node();
 }
-let exportUrl=null, exportFmt=FORMATS[0];
+const TEXT_SIZES=[{k:1,label:"Normal text"},{k:1.4,label:"Large text"},{k:1.8,label:"Extra large text"}];
+let exportUrl=null, exportFmt=FORMATS[0], exportText=TEXT_SIZES[0], exportKey=true;
 function makeImage(){
-  const f=exportFmt, xml=new XMLSerializer().serializeToString(buildExportSvg(f.w,f.h)), img=new Image(), btn=$("mkimg");
+  const f=exportFmt, k0=Math.min(exportText.k,f.w/760); let k=k0, svg;   // narrow formats cap the text size, so the quadrant names still fit side by side
+  for(;;){ svg=buildExportSvg(f.w/k,f.h/k); if(k<=1||+svg.getAttribute("data-plot")>=.5) break; k=Math.max(1,Math.round((k-.1)*10)/10); }   // and the plot keeps at least half of the height
+  svg.setAttribute("width",f.w*2); svg.setAttribute("height",f.h*2);
+  const xml=new XMLSerializer().serializeToString(svg), img=new Image(), btn=$("mkimg");
   btn.disabled=true;
   img.onload=()=>{
     const c=document.createElement("canvas"); c.width=f.w*2; c.height=f.h*2; c.getContext("2d").drawImage(img,0,0,c.width,c.height);
@@ -1115,7 +1123,7 @@ function makeImage(){
       btn.disabled=false; if(!blob) return;
       if(exportUrl) URL.revokeObjectURL(exportUrl); exportUrl=URL.createObjectURL(blob);
       $("imgprev").src=exportUrl; const a=$("imgdl"); a.href=exportUrl; const dev=deviations(); a.download=`AlpineDip_map_${state.map}_${f.k}${dev.length?"_modified":""}.png`;
-      $("imgcap").textContent=`${f.what} · ${c.width} × ${c.height} px`;
+      $("imgcap").textContent=`${f.what} · ${c.width} × ${c.height} px`+(k>1?` · text ${Math.round(k*100)}%`+(k<exportText.k?` (the most this format allows${k<k0&&exportKey?"; hide the legend for larger text":""})`:""):"");
       const w=$("imgwarn"); w.hidden=!dev.length; w.replaceChildren();
       if(dev.length){
         w.append(el("strong",null,"Not the original version. "),"This picture includes your "+(dev.length===1?"change":"changes")+":"); const ul=el("ul"); dev.forEach(t=>ul.append(el("li",null,t))); w.append(ul);
@@ -1132,6 +1140,12 @@ FORMATS.forEach(f=>{
   b.onclick=()=>{ exportFmt=f; document.querySelectorAll("#imgfmt .chip").forEach(o=>o.setAttribute("aria-pressed",o===b)); makeImage(); };
   $("imgfmt").append(b);
 });
+TEXT_SIZES.forEach(t=>{
+  const b=el("button","chip",t.label); b.type="button"; b.setAttribute("aria-pressed",t===exportText);
+  b.onclick=()=>{ exportText=t; document.querySelectorAll("#imgsize .chip").forEach(o=>o.setAttribute("aria-pressed",o===b)); makeImage(); };
+  $("imgsize").append(b);
+});
+$("imgkey").onchange=e=>{ exportKey=e.target.checked; makeImage(); };
 $("mkimg").onclick=makeImage;
 $("imgclose").onclick=()=>{ const dlg=$("imgdlg"); if(dlg.close) dlg.close(); else dlg.removeAttribute("open"); };
 $("imgdlg").addEventListener("click",e=>{ if(e.target===e.currentTarget) e.currentTarget.close(); });   // click on the backdrop closes
