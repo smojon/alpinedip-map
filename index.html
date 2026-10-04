@@ -161,6 +161,10 @@ a.btn{text-decoration:none;color:var(--ink)}
 .badge.na{background:#eceef1;color:var(--ink-2)}
 .badge.you{background:var(--chg);color:#6d4a00}
 .ev p{margin:3px 0 0;color:var(--ink-2)}
+.pev{margin:6px 0 0;font-size:13.5px;color:var(--ink-2)}
+.pev summary{min-height:32px;display:flex;align-items:center;cursor:pointer;font-weight:600;list-style-position:inside}
+.pev ul{margin:4px 0 0;padding-left:18px}
+.ev .pev li{border-top:0;padding:3px 0}
 .close{position:absolute;top:6px;right:6px;width:var(--tap);height:var(--tap);border:0;border-radius:50%;background:var(--page);font-size:20px;cursor:pointer}
 
 .panel{margin-top:12px}
@@ -815,6 +819,18 @@ function badge(status){
   const s=status.toLowerCase(), cls=s.startsWith("calc")?"calc":s.includes("evidence")?"evd":s.startsWith("not")?"na":s.startsWith("changed")?"you":"asm";
   return el("span","badge "+cls,status);
 }
+function priceEvidence(d){   // retail listings behind a price that is set from web evidence: one collapsed list per price used by this dish
+  return ((M.price_evidence||{}).prices||[]).filter(p=>p.dishes.includes(d.name)).map(p=>{
+    const det=el("details","pev"), ul=el("ul");
+    det.append(el("summary",null,`${p.listings.length} retail listings behind this price (collected ${M.price_evidence.date})`),el("p",null,p.rule));
+    p.listings.forEach(l=>{
+      const li=el("li"), a=el("a",null,l.retailer); a.href=l.url; a.target="_blank"; a.rel="noopener";
+      li.append(a,`: ${l.product}, ${l.pack}, ${usd(l.listed_price_usd)}${l.usd_per_lb&&!/lb/.test(l.pack)?` (${usd(l.usd_per_lb)} per lb)`:""} · ${l.checked}${l.used_for_estimate?"":" · not used"}${l.note?" · "+l.note:""}`);
+      ul.append(li);
+    });
+    det.append(ul); return det;
+  });
+}
 function evRow(title,status,text){
   const li=el("li"); li.append(el("span","t",title),badge(status)); if(text) li.append(el("p",null,text)); return li;
 }
@@ -906,10 +922,12 @@ function renderDetail(){
   const bls=d===alp?"":` ${Math.round(d.cost_bls_share*100)}% of this cost comes from BLS Aug 2026 prices; the rest uses assumed prices.`;
   const was=k=>d[k]!==d.base[k]?`Your value: ${score(d[k])} (published: ${score(d.base[k])}). `:"";
   const yours=(k,fmt)=>d[k]!==d.base[k]?`Your value: ${fmt(d[k])} (published: ${fmt(d.base[k])}). `:"";
+  const costRow=evRow("Cost",d.cost!==d.base.cost?"Changed by you":n.cost_status,yours("cost",usd)+n.cost_basis.replace(/\.$/,"")+"."+bls);
+  costRow.append(...priceEvidence(d));
   ul.append(
     evRow("Effort and cost",axisChanged(d,"effort")?"Changed by you":n.effort_status,critText(d,"effort")+(n.effort_note?" "+n.effort_note:"")),
     evRow("Social sharing",axisChanged(d,"sharing")?"Changed by you":n.sharing_status,critText(d,"sharing")+(d.sharing_original!=null?` Earlier single-rubric score: ${d.sharing_original}.`:"")),
-    evRow("Cost",d.cost!==d.base.cost?"Changed by you":n.cost_status,yours("cost",usd)+n.cost_basis.replace(/\.$/,"")+"."+bls),
+    costRow,
     evRow("Time to table",d.time_min!==d.base.time_min?"Changed by you":n.time_status,yours("time_min",mins)+n.time_basis),
     evRow("Eat anywhere",d.anywhere!==d.base.anywhere?"Changed by you":n.anywhere_status,was("anywhere")+`${Number.isInteger(d.anywhere)?`Level ${d.anywhere}: ${M.anywhere.levels[d.anywhere-1]}.`:`Average rating ${score(d.anywhere)} of 5.`} ${n.anywhere_note?n.anywhere_note+" ":""}Source: ${n.anywhere_source}.`),
     evRow("Suits everyone",d.suits!==d.base.suits?"Changed by you":n.suits_status,was("suits")+`${Number.isInteger(d.suits)?`Level ${d.suits}: ${M.suits.levels[d.suits-1]}.`:`Average rating ${score(d.suits)} of 5.`} ${n.suits_note?n.suits_note+" ":""}Not part of the sharing score. Source: ${n.suits_source}.`),
