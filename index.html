@@ -162,7 +162,11 @@ a.btn{text-decoration:none;color:var(--ink)}
 .badge.you{background:var(--chg);color:#6d4a00}
 .ev p{margin:3px 0 0;color:var(--ink-2)}
 .pev{margin:6px 0 0;font-size:13.5px;color:var(--ink-2)}
-.pev summary{min-height:32px;display:flex;align-items:center;cursor:pointer;font-weight:600;list-style-position:inside}
+.pev summary{min-height:var(--tap);display:flex;align-items:center;gap:8px;margin-top:8px;padding:4px 12px;border:1px solid var(--axis);border-radius:10px;background:var(--surface);color:var(--link);cursor:pointer;font-weight:600;list-style:none}
+.pev summary::-webkit-details-marker{display:none}
+.pev summary::before{content:"▸";flex:none}
+.pev[open] summary::before{content:"▾"}
+.pev[open] summary{margin-bottom:8px}
 .pev ul{margin:4px 0 0;padding-left:18px}
 .ev .pev li{border-top:0;padding:3px 0}
 .close{position:absolute;top:6px;right:6px;width:var(--tap);height:var(--tap);border:0;border-radius:50%;background:var(--page);font-size:20px;cursor:pointer}
@@ -822,7 +826,7 @@ function badge(status){
 function priceEvidence(d){   // retail listings behind a price that is set from web evidence: one collapsed list per price used by this dish
   return ((M.price_evidence||{}).prices||[]).filter(p=>p.dishes.includes(d.name)).map(p=>{
     const det=el("details","pev"), ul=el("ul");
-    det.append(el("summary",null,`${p.listings.length} retail listings behind this price (collected ${M.price_evidence.date})`),el("p",null,p.rule));
+    det.append(el("summary",null,`Show the ${p.listings.length} retail listings behind this price`),el("p",null,`Collected online on ${M.price_evidence.date}. ${p.rule}`));
     p.listings.forEach(l=>{
       const li=el("li"), a=el("a",null,l.retailer); a.href=l.url; a.target="_blank"; a.rel="noopener";
       li.append(a,`: ${l.product}, ${l.pack}, ${usd(l.listed_price_usd)}${l.usd_per_lb&&!/lb/.test(l.pack)?` (${usd(l.usd_per_lb)} per lb)`:""} · ${l.checked}${l.used_for_estimate?"":" · not used"}${l.note?" · "+l.note:""}`);
